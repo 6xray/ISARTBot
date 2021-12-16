@@ -24,7 +24,6 @@
 
 import re
 import os
-import json
 import base64
 import discord
 
@@ -36,14 +35,11 @@ from isartbot.checks                import is_club_manager
 from isartbot.helper                import Helper
 from email.mime.multipart           import MIMEMultipart
 from googleapiclient.discovery      import build
-from google.oauth2.credentials      import Credentials
-from google_auth_oauthlib.flow      import InstalledAppFlow
-from google.auth.transport.requests import Request
 
 class ReservationExt(commands.Cog):
     """ Assists club managers for room reservation """
 
-    __slots__ = ("bot", "creds", "calendar_service", "gmail_service", "event_statuses")
+    __slots__ = ("bot", "calendar_service", "gmail_service", "event_statuses")
 
     @dataclass
     class Reservation:
@@ -64,43 +60,17 @@ class ReservationExt(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        
-        self.creds = self.load_credentials()
 
-        self.calendar_service = build('calendar', 'v3', credentials=self.creds)
-        self.gmail_service = build('gmail', 'v1', credentials=self.creds)
+        self.calendar_service = build('calendar', 'v3', credentials=self.bot.google_credentials)
+        self.gmail_service = build('gmail', 'v1', credentials=self.bot.google_credentials)
 
         self.event_statuses = self.build_event_statuses()
 
-        self.reservation_scan.change_interval(hours=self.bot.settings.getint('reservation', 'mailing_delay') * 24 )
+        self.reservation_scan.change_interval(hours=self.bot.settings.getint('reservation', 'mailing_delay') * 24)
         self.reservation_scan.start()
 
     def cog_unload(self):
         self.reservation_scan.cancel()
-
-    def load_credentials(self):
-        """" Loads Google credentials and writes them in a file for future loadings """
-
-        creds = None
-        google_token_file_name = self.bot.settings.get('reservation', 'google_token')
-
-        if os.path.exists(google_token_file_name):
-            creds = Credentials.from_authorized_user_file(google_token_file_name)
-        
-        if (not creds or not creds.valid):
-            if (creds and creds.expired and creds.refresh_token):
-                creds.refresh(Request())
-            else:
-                scopes = json.loads(self.bot.settings.get('reservation', 'google_api_scopes'))
-                google_credentials_file_name = self.bot.settings.get('reservation', 'google_credentials')
-
-                flow = InstalledAppFlow.from_client_secrets_file(google_credentials_file_name, scopes)
-
-                creds = flow.run_local_server(port=0)
-            with open(google_token_file_name, 'w') as token:
-                token.write(creds.to_json())
-                
-        return creds
 
     def build_event_statuses(self):
         """" Associates a reservation status with an icon """

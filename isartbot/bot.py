@@ -22,7 +22,8 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import sys
+import os
+import json
 import discord
 import asyncio
 import logging
@@ -30,11 +31,14 @@ import traceback
 import configparser
 import logging.config
 
-from isartbot.lang         import Lang
-from isartbot.checks       import log_command, trigger_typing, block_dms
-from isartbot.database     import Server, Database
-from isartbot.exceptions   import UnauthorizedCommand, VerificationRequired
-from isartbot.help_command import HelpCommand
+from isartbot.lang                  import Lang
+from isartbot.checks                import log_command, trigger_typing, block_dms
+from isartbot.database              import Server, Database
+from isartbot.exceptions            import UnauthorizedCommand, VerificationRequired
+from isartbot.help_command          import HelpCommand
+from google.oauth2.credentials      import Credentials
+from google_auth_oauthlib.flow      import InstalledAppFlow
+from google.auth.transport.requests import Request
 
 from os.path     import abspath
 from discord.ext import commands
@@ -42,7 +46,7 @@ from discord.ext import commands
 class Bot(commands.Bot):
     """ Main bot class """
 
-    __slots__ = ("settings", "extensions", "config_file", "database", "logger", "langs", "dev_mode")
+    __slots__ = ("settings", "extensions", "config_file", "database", "logger", "langs", "dev_mode", "google_credentials")
 
     def __init__(self, *args, **kwargs):
         """ Inits and runs the bot """
@@ -70,6 +74,10 @@ class Bot(commands.Bot):
 
         # Creating the help command
         self.help_command = HelpCommand()
+
+        # Loading Google credentials
+        self.google_credentials = None
+        self.loop.run_until_complete(self.load_google_credentials())
 
         # Loading languages
         self.langs          = {}
@@ -123,6 +131,29 @@ class Bot(commands.Bot):
                 self.logger.error(f"Failed to load a language")
                 await self.on_error(e)
 
+        return
+
+    async def load_google_credentials(self):
+        """" Loads Google credentials and writes them in a file for future loadings """
+
+        google_token_file_name = self.settings.get('google_api', 'google_token')
+
+        if os.path.exists(google_token_file_name):
+            self.google_credentials = Credentials.from_authorized_user_file(google_token_file_name)
+        
+        if (not self.google_credentials or not self.google_credentials.valid):
+            if (self.google_credentials and self.google_credentials.expired and self.google_credentials.refresh_token):
+                self.google_credentials.refresh(Request())
+            else:
+                scopes = json.loads(self.settings.get('google_api', 'google_api_scopes'))
+                google_credentials_file_name = self.settings.get('google_api', 'google_credentials')
+
+                flow = InstalledAppFlow.from_client_secrets_file(google_credentials_file_name, scopes)
+
+                self.google_credentials = flow.run_local_server(port=0)
+            with open(google_token_file_name, 'w') as token:
+                token.write(self.google_credentials.to_json())
+                
         return
 
     async def get_translations(self, ctx, keys: list, force_fetch: bool = False):
